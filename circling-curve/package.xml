@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>circling-curve</name>
+  <name>circling_curve</name>
   <version>0.0.0</version>
   <description>The circling-curve package</description>
 
@@ -50,9 +50,10 @@
   <!--   <doc_depend>doxygen</doc_depend> -->
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>rospy</build_depend>
+  <build_depend>linearization_controller</build_depend>
   <build_export_depend>rospy</build_export_depend>
   <exec_depend>rospy</exec_depend>
-
+  <exec_depend>linearization_controller</exec_depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>
