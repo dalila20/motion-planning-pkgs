@@ -4,6 +4,8 @@ import numpy as np
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 import tf2_ros as tf
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import Point
 from tf.transformations import euler_from_quaternion
 
 class LinearizationController:
@@ -11,9 +13,22 @@ class LinearizationController:
     def __init__(self):
         rospy.init_node('feedback_linearization_controller', anonymous=False)
 
+        self.marker = Marker()
+        self.marker.header.frame_id = "base_footprint"
+        self.marker.type = Marker.POINTS
+        self.marker.action = Marker.ADD
+        self.marker.pose.orientation.w = 1.0
+        self.marker.scale.x = 0.1
+        self.marker.scale.y = 0.1
+        self.marker.scale.z = 0.1
+        self.marker.color.r = 1.0
+        self.marker.color.a = 1.0
+        self.marker.lifetime = rospy.Duration()
+
         self.pose = np.array([])
         self.vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         self.odom_sub = rospy.Subscriber('/odom', Odometry, self.odom_callback)
+        self.marker_pub = rospy.Publisher('visualization_marker', Marker, queue_size=5)
 
     def odom_callback(self, odom):
         x = odom.pose.pose.position.x
@@ -26,6 +41,7 @@ class LinearizationController:
 
         yaw = euler_from_quaternion([q_x, q_y, q_z, q_w])[2]
         self.pose = np.array([x, y, yaw])
+        self.update_marker()
 
     def is_goal_reached(self, x_goal, y_goal):
         x = self.pose[0]
@@ -68,10 +84,17 @@ class LinearizationController:
         vel.linear.x = v
         vel.angular.z = w
         
-        print(self.is_goal_reached(x_goal, y_goal))
-        # while not self.is_goal_reached(x_goal, y_goal):
         self.vel_pub.publish(vel)
 
     def get_current_pos(self):
         rospy.wait_for_message('/odom', Odometry)
         return [self.pose[0], self.pose[1]]
+
+    def update_marker(self):
+        point = Point()
+        point.x = self.pose[0]
+        point.y = self.pose[1]
+        point.z = 0.2
+        self.marker.points.append(point)
+
+        self.marker_pub.publish(self.marker)

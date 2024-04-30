@@ -11,19 +11,12 @@ from LinearizationController import LinearizationController
 
 class CirclingCurve:
     def __init__(self):
-        # rospy.init_node('curve', anonymous=False)
 
         # Cardioid curve 
         t = np.linspace(0, 2*np.pi, 40)
-        # x = 2 * np.cos(t) - np.cos(2*t)
-        # y = 2 * np.sin(t) - np.sin(2*t)
         x = 2 * np.cos(t) * (1 - np.cos(t))
         y = 2 * np.sin(t) * (1 - np.cos(t))
-        # x = (1-2*np.cos(t)) * np.cos(t)
-        # y = (1-2*np.cos(t)) * np.sin(t)
         self.waypoints = np.column_stack([x, y])
-        self.x = []
-        self.y = []
 
         self.pose = np.array([])
 
@@ -56,10 +49,6 @@ class CirclingCurve:
 
         while not rospy.is_shutdown():
             try:
-                pos = controller.get_current_pos()
-                # self.x.append(pos[0])
-                # self.y.append(pos[1])
-                
                 controller.go_to_goal(self.waypoints[i][0],
                                         self.waypoints[i][1])
                 rospy.logwarn(self.waypoints[i])
@@ -69,20 +58,9 @@ class CirclingCurve:
                 if i == len(self.waypoints):
                     i = 0
                     j = j + 1
-                # if j == 2:
-                #     break
                 rate.sleep()
             except KeyboardInterrupt:
-                # Ctrl + Z
                 break
-
-        plt.plot(self.x, self.y)
-        plt.title('Trajetória do Robô - Cardióide')
-        plt.xlabel('X')
-        plt.ylabel('Y')
-        plt.axis('equal')
-        plt.grid(True)
-        plt.show()
 
 if __name__ == "__main__":
     curve = CirclingCurve()
