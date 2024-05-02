@@ -8,6 +8,7 @@ from std_msgs.msg import Float32
 from BugFSM import BugFSM
 import math
 import numpy as np
+from LinearizationController import LinearizationController
 
 class MovingToGoal:
     def __init__(self):
@@ -18,6 +19,8 @@ class MovingToGoal:
         self.d_x_goal = 0.0
         self.d_x_oi = 0.0
         self.d_oi_goal = 0.0
+
+        self.is_goal_blocked = True
 
         self.continuity_indexes = []
         self.laser_readings = LaserScan()
@@ -114,12 +117,86 @@ class MovingToGoal:
                 # Positions referenced to the global frame
                 global_init_vec = np.dot(T, init_vec)[:2]
                 global_end_vec = np.dot(T, end_vec)[:2]
+
                 continuities_positions.append(global_init_vec)
                 continuities_positions.append(global_end_vec)
 
+            # Verifies if path to the goal is blocked
+            self.check_if_blocked(angles)
+
             return np.asarray(continuities_positions)
+
+    def get_best_oi(self):
+        ois = self.get_continuities_positions(self.continuity_indexes,
+                                              self.laser_readings)
+        least_dist = float('inf')
+        best_oi = None
+
+        for index, oi in enumerate(ois):
+            d_x_oi = math.sqrt(abs(oi[0]-self.pose[0])**2 +
+                             abs(oi[1]-self.pose[1])**2)
+            d_oi_goal = math.sqrt(abs(oi[0]-self.goal.x)**2 +
+                             abs(oi[1]-self.goal.y)**2)
+            if (d_x_oi + d_oi_goal) < least_dist:
+                least_dist = d_x_oi + d_oi_goal
+                best_oi = oi
+                self.d_oi_goal = d_x_oi + d_oi_goal
+        print(best_oi)
+
+        return best_oi
+
+    def check_if_blocked(self, angles):
+        dx = self.goal.x - self.pose[0]
+        dy = self.goal.y - self.pose[1]
+        d = math.sqrt(dx**2 + dy**2)
+
+        angle_to_target = math.atan2(dy, dx)
+        yaw_robot = math.atan2(math.sin(self.pose[2]), math.cos(self.pose[2]))
+        angle_diff = angle_to_target - yaw_robot
+        index = 0
+
+        least_dist = float('inf')
+        for i, angle in enumerate(angles):
+            if abs(angle - angle_diff) < least_dist:
+                least_dist = abs(angle - angle_diff)
+                index = i
+
+        if self.laser_readings.ranges[index] <= self.laser_readings.range_max:
+            self.is_goal_blocked = True
+        else:
+            self.is_goal_blocked = False
+
+        # for pos in [init, end]:
+        #     if ((self.goal.x > end[0] and self.goal.y > end[1])
+        #         or (self.goal.x < init[0] and self.goal.y < init[1])):
+        #         self.is_goal_blocked = False
+        #     else:
+        #         self.is_goal_blocked = True
 
     def execute(self):
         # if local minimum found
         # self.fsm.minimum_found()
-        print(self.get_continuities_positions(self.continuity_indexes, self.laser_readings))
+        controller = LinearizationController()
+
+        rate = rospy.Rate(10)
+
+        while not rospy.is_shutdown():
+            try:
+                oi = self.get_best_oi()
+
+                print(self.is_goal_blocked)
+                if self.is_goal_blocked:
+                    controller.go_to_goal(oi[0], oi[1])
+                    rospy.logwarn(oi)
+                else:
+                    controller.go_to_goal(self.goal.x,
+                                          self.goal.y)
+                if (controller.is_goal_reached(self.goal.x,
+                                               self.goal.y)):
+                    rospy.loginfo("Goal reached!")
+                    break
+                
+                rate.sleep()
+            except KeyboardInterrupt:
+                # Ctrl + Z
+                break
