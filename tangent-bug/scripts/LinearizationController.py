@@ -73,3 +73,10 @@ class LinearizationController:
     def get_current_pos(self):
         rospy.wait_for_message('/odom', Odometry)
         return [self.pose[0], self.pose[1]]
+
+    def stop_robot(self):
+        vel = Twist()
+        vel.linear.x = 0.0
+        vel.angular.z = 0.0
+        
+        self.vel_pub.publish(vel)

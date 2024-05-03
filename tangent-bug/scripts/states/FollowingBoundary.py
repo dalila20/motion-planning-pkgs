@@ -10,7 +10,7 @@ import math
 import numpy as np
 from LinearizationController import LinearizationController
 
-class MovingToGoal:
+class FollowingBoundary:
     def __init__(self):
         self.fsm = BugFSM().instance()
         self.goal = Point()
@@ -19,6 +19,11 @@ class MovingToGoal:
         self.d_x_goal = 0.0
         self.d_x_oi = 0.0
         self.d_oi_goal = 0.0
+
+        self.d_reached = 0.0
+        self.d_followed = 0.0
+        self.followed_points = None
+        self.followed_distances = []
 
         self.transform = np.array([])
 
@@ -150,12 +155,9 @@ class MovingToGoal:
                 self.d_oi_goal = d_x_oi + d_oi_goal
                 heuristic_distances.append(least_dist)
 
-            distance_margin = 0.01
-            num = 0
+            distance_margin = 0.005
             for index, distance in enumerate(heuristic_distances):
-                if index > 0 and (abs(heuristic_distances[index]
-                                      - heuristic_distances[index - 1])
-                                      <= distance_margin):
+                if index > 0 and (abs(heuristic_distances[index] - heuristic_distances[index - 1]) <= distance_margin):
                     self.is_local_minimum = True
             print(least_dist)
 
@@ -189,6 +191,46 @@ class MovingToGoal:
                 else:
                     return False
 
+    def get_least_distances(self, indexes, ranges, angles):
+
+        least_dist_indexes = []
+        global_coords = []
+        T = self.transform
+
+        for interval in indexes:
+            obstacle_indexes = list(range(interval[0],
+                                    interval[1] + 1))
+            
+            least_dist = float('inf')
+            least_dist_index = 0
+            for index in obstacle_indexes:
+                dist = ranges[index]
+                if dist < least_dist:
+                    least_dist = dist
+                    least_dist_index = index
+            
+            least_dist_indexes.append(least_dist_index)
+            x = ranges[least_dist_index] * math.cos(angles[least_dist_index])
+            y = ranges[least_dist_index] * math.sin(angles[least_dist_index])
+
+            coord = np.array([x, y, 1])
+            global_coord = np.dot(T, coord)[:2]
+            global_coords.append(global_coord)
+
+        return global_coords
+
+    def update_d_followed(self, point):
+        self.followed_points.append(point)
+        d = np.linalg.norm(self.goal.x - point[0],
+                           self.goal.y - point[1])
+        
+        self.followed_distances.append(d)
+        self.d_followed = min(self.followed_distances)
+
+    def update_d_reach(self, point):
+        pass
+
+
     def execute(self):
         controller = LinearizationController()
 
@@ -196,30 +238,18 @@ class MovingToGoal:
 
         while not rospy.is_shutdown():
             try:
-                oi = self.get_best_oi()
-
-                if self.is_local_minimum:
-                    self.fsm.minimum_found()
-                    break
-                if self.is_goal_blocked:
-                    controller.go_to_goal(oi[0], oi[1])
-                    rospy.logwarn(oi)
-                else:
-                    controller.go_to_goal(self.goal.x,
-                                          self.goal.y)
-                if (controller.is_goal_reached(self.goal.x,
-                                               self.goal.y)):
-                    rospy.loginfo("Goal reached!")
-                    self.fsm.goal_reached()
-                    break
+                if self.followed_points is None:
+                    controller.stop_robot()
+                    self.followed_points = []
+                    self.followed_points.append([self.pose[0],
+                                                 self.pose[1]])
+                    self.get_continuities_positions(self.continuity_indexes,
+                                                    self.laser_readings)
+                    self.W = (self.laser_readings.ranges[88]
+                              + self.laser_readings.ranges[89]) / 2
+                    print(self.W)
                 
                 rate.sleep()
             except KeyboardInterrupt:
                 # Ctrl + Z
                 break
-
-"""
-o que falta:
-definir limite de segurança para motion to goal
-detectar o mínimo local, parar o robô e transicionar para boundary follow
-"""
