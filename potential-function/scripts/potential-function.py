@@ -17,6 +17,11 @@ class PotentialFunction:
         rospy.logwarn_throttle(5, "Waiting for goal...")
         rospy.wait_for_message('/goal', PointMsg)
 
+        self.continuity_indexes = []
+        self.laser_readings = LaserScan()
+        self.angles = []
+        self.transform = np.array([])
+
         # Subscribers
         self.goal_sub = rospy.Subscriber('/goal', PointMsg, self.goal_callback)
         self.odom_sub = rospy.Subscriber('/odom', Odometry, self.odom_callback)
@@ -46,21 +51,22 @@ class PotentialFunction:
         self.angle_increment = readings.angle_increment
 
         indexes = []
-        init = 0
+        init = None
         end = 0
 
-        for i in range(len(self.laser_readings.ranges)):
-            if (self.laser_readings.ranges[i] <= readings.range_max and init == 0):
-                init = i + 1
-            if (self.laser_readings.ranges[i] > readings.range_max and init != 0):
+        num_readings = len(self.laser_readings.ranges)
+
+        for i in range(num_readings):
+            if (self.laser_readings.ranges[i] <= readings.range_max and init is None):
+                init = i
+            if (self.laser_readings.ranges[i] > readings.range_max and init is not None):
                 end = i - 1
                 indexes.append([init, end])
-                init = 0
-            elif (i == (len(self.laser_readings.ranges)-1) and init != 0):
-                # melhorar lógica
+                init = None
+            elif (i == (num_readings - 1) and init is not None):
                 end = i
                 indexes.append([init, end])
-                init = 0
+                init = None
 
         self.continuity_indexes = indexes
 
@@ -78,29 +84,59 @@ class PotentialFunction:
                 else:
                     angles.append(angles[i-1] + readings.angle_increment)
 
+            self.angles = angles
+
             T = self.transform
+
             # Positions referenced to the robot
-            for i in range(len(indexes)):
-                init_x = ranges[indexes[i][0]] * math.cos(angles[indexes[i][0]])
-                init_y = ranges[indexes[i][0]] * math.sin(angles[indexes[i][0]])
+            if len(ranges) > 0 and len(angles) > 0:
 
-                end_x = ranges[indexes[i][1]] * math.cos(angles[indexes[i][1]])
-                end_y = ranges[indexes[i][1]] * math.sin(angles[indexes[i][1]])
+                for i in range(len(indexes)):
+                    init_x = ranges[indexes[i][0]] * math.cos(angles[indexes[i][0]])
+                    init_y = ranges[indexes[i][0]] * math.sin(angles[indexes[i][0]])
 
-                init_vec = np.array([init_x, init_y, 1])
-                end_vec = np.array([end_x, end_y, 1])
+                    end_x = ranges[indexes[i][1]] * math.cos(angles[indexes[i][1]])
+                    end_y = ranges[indexes[i][1]] * math.sin(angles[indexes[i][1]])
 
-                # Positions referenced to the global frame
-                global_init_vec = np.dot(T, init_vec)[:2]
-                global_end_vec = np.dot(T, end_vec)[:2]
+                    init_vec = np.array([init_x, init_y, 1])
+                    end_vec = np.array([end_x, end_y, 1])
 
-                continuities_positions.append(global_init_vec)
-                continuities_positions.append(global_end_vec)
+                    # Positions referenced to the global frame
+                    global_init_vec = np.dot(T, init_vec)[:2]
+                    global_end_vec = np.dot(T, end_vec)[:2]
 
-            # Verifies if path to the goal is blocked
-            self.check_if_blocked(angles)
+                    continuities_positions.append(global_init_vec)
+                    continuities_positions.append(global_end_vec)
 
             return np.asarray(continuities_positions)
+
+    def get_least_distances(self, indexes, ranges, angles):
+
+        least_dist_indexes = []
+        global_coords = []
+        T = self.transform
+
+        for interval in indexes:
+            obstacle_indexes = list(range(interval[0],
+                                    interval[1] + 1))
+            
+            least_dist = float('inf')
+            least_dist_index = 0
+            for index in obstacle_indexes:
+                dist = ranges[index]
+                if dist < least_dist:
+                    least_dist = dist
+                    least_dist_index = index
+            
+            least_dist_indexes.append(least_dist_index)
+            x = ranges[least_dist_index] * math.cos(angles[least_dist_index])
+            y = ranges[least_dist_index] * math.sin(angles[least_dist_index])
+
+            coord = np.array([x, y, 1])
+            global_coord = np.dot(T, coord)[:2]
+            global_coords.append(global_coord)
+
+        return global_coords
 
     def get_transformation_matrix(self, pose):
         cos_theta = np.cos(pose[2])
@@ -121,24 +157,45 @@ class PotentialFunction:
 
         # Function parameters
         d_star = 1.0
-        zeta = 5
+        zeta = 3
 
         q = np.array([self.pose[0], self.pose[1]])
         q_goal = np.array([self.goal.x, self.goal.y])
 
-        d_qqgoal = np.linalg.norm(q - q_goal)
-        if d_qqgoal <= d_star:
-            U_att = 0.5 * zeta * (d_qqgoal ** 2)
-            grad_Uatt = zeta * (q - q_goal)
+        d = q - q_goal
+        d_norm = np.linalg.norm(d)
+        if d_norm <= d_star:
+            grad_att = zeta * d
         else:
-            U_att = d_star * zeta * d_qqgoal - 0.5 * zeta * (d_star ** 2)
-            grad_Uatt = d_star * zeta * (q - q_goal) / d_qqgoal
+            grad_att = d_star * zeta * d / d_norm
         
-        return U_att, grad_Uatt
+        return grad_att
 
     def get_repulsive_potential(self):
-        pass
 
+        # Function parameters
+        d_o = 0.1
+        eta = 10
+
+        grad_rep = np.array([0.0, 0.0])
+        obstacles_coords = self.get_least_distances(self.continuity_indexes,
+                                                   self.laser_readings.ranges,
+                                                   self.angles)
+        
+        q = np.array([self.pose[0], self.pose[1]])
+
+        for coord in obstacles_coords:
+            q_obs = np.array([coord[0], coord[1]])
+            d_obs = q - q_obs
+            d_norm = np.linalg.norm(d_obs) - 0.1 # safety margin
+
+            grad_d_obs = d_obs / d_norm
+            
+            if d_norm <= d_o:
+                grad_rep = grad_rep + eta * (1 / d_o - 1 / d_obs) * grad_d_obs / (d_obs)**2
+
+        return grad_rep
+        
     def run(self):
         controller = LinearizationController()
 
@@ -146,15 +203,20 @@ class PotentialFunction:
 
         while not rospy.is_shutdown():
             try:
-                grad_attrac = -self.get_attractive_potential()[1]
-                controller.go_to_goal(self.goal.x,
-                                                self.goal.y,
-                                                grad_attrac[0],
-                                                grad_attrac[1])
+                self.get_continuities_positions(self.continuity_indexes,
+                                                    self.laser_readings)
+                if len(self.angles) > 0:
+                    self.get_least_distances(self.continuity_indexes, self.laser_readings.ranges, self.angles)
+                    grad = - self.get_attractive_potential() - self.get_repulsive_potential()
+                    # grad = - self.get_attractive_potential()
+                    controller.go_to_goal(self.goal.x,
+                                                    self.goal.y,
+                                                    grad[0],
+                                                    grad[1])
 
                 if (controller.is_goal_reached(self.goal.x,
                                                 self.goal.y)):
-                    rospy.logwarn("Goal reached!")
+                    rospy.logwarn_throttle(2, "Goal reached!")
                     controller.stop_robot()
                     # self.goal = None se as velocidades zerarem
                     

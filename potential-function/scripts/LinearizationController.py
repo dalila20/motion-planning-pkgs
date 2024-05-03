@@ -38,8 +38,8 @@ class LinearizationController:
 
     def go_to_goal(self, x_goal, y_goal, vx, vy):
         d = 0.7
-        Kp = 0.3
-        Vmax = 1.0
+        Kp = 8
+        Vmax = 0.5
         yaw = self.pose[2]
 
         if (x_goal != None and y_goal != None):
@@ -61,7 +61,6 @@ class LinearizationController:
         v = float(vw[0])
         w = float(vw[1])
         
-        print(v, w)
         vel = Twist()
         vel.linear.x = v
         vel.angular.z = w
