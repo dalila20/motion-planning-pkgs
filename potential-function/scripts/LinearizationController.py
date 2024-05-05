@@ -36,30 +36,26 @@ class LinearizationController:
         else:
             return False
 
-    def go_to_goal(self, x_goal, y_goal, vx, vy):
+    def go_to_goal(self, x_goal, y_goal, v_x, v_y):
         d = 0.7
-        Kp = 8
-        Vmax = 0.5
+        K_p = 8
+        V_max = 0.5
         yaw = self.pose[2]
 
-        if (x_goal != None and y_goal != None):
-            u1 = vx + Kp * (x_goal - self.pose[0])
-            u2 = vy + Kp * (y_goal - self.pose[1])
-        else:
-            u1 = vx
-            u2 = vy
+        u1 = v_x + K_p * (x_goal - self.pose[0])
+        u2 = v_y + K_p * (y_goal - self.pose[1])
 
-        Vtot = math.sqrt(u1**2 + u2**2)
-        if (Vtot > Vmax):
-            u1 = u1 * Vmax / Vtot
-            u2 = u2 * Vmax / Vtot
+        V_total = math.sqrt(u1**2 + u2**2)
+        if (V_total > V_max):
+            u1 = u1 * V_max / V_total
+            u2 = u2 * V_max / V_total
     
         A = [[np.cos(yaw), -d * np.sin(yaw)],
             [np.sin(yaw), d * np.cos(yaw)]]
         
-        vw = np.linalg.inv(A) @ [[u1], [u2]]
-        v = float(vw[0])
-        w = float(vw[1])
+        v_w = np.linalg.inv(A) @ [[u1], [u2]]
+        v = float(v_w[0])
+        w = float(v_w[1])
         
         vel = Twist()
         vel.linear.x = v

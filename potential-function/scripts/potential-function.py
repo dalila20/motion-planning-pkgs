@@ -12,11 +12,10 @@ class PotentialFunction:
     def __init__(self):
         rospy.init_node('potential_function_node', anonymous=False)
 
-        self.pose = np.array([])
-
         rospy.logwarn_throttle(5, "Waiting for goal...")
         rospy.wait_for_message('/goal', PointMsg)
 
+        self.pose = np.array([])
         self.continuity_indexes = []
         self.laser_readings = LaserScan()
         self.angles = []
@@ -110,9 +109,9 @@ class PotentialFunction:
 
             return np.asarray(continuities_positions)
 
-    def get_least_distances(self, indexes, ranges, angles):
+    def get_smallest_distances(self, indexes, ranges, angles):
 
-        least_dist_indexes = []
+        smallest_dist_indexes = []
         global_coords = []
         T = self.transform
 
@@ -120,17 +119,17 @@ class PotentialFunction:
             obstacle_indexes = list(range(interval[0],
                                     interval[1] + 1))
             
-            least_dist = float('inf')
-            least_dist_index = 0
+            smallest_dist = float('inf')
+            smallest_dist_index = 0
             for index in obstacle_indexes:
                 dist = ranges[index]
-                if dist < least_dist:
-                    least_dist = dist
-                    least_dist_index = index
+                if dist < smallest_dist:
+                    smallest_dist = dist
+                    smallest_dist_index = index
             
-            least_dist_indexes.append(least_dist_index)
-            x = ranges[least_dist_index] * math.cos(angles[least_dist_index])
-            y = ranges[least_dist_index] * math.sin(angles[least_dist_index])
+            smallest_dist_indexes.append(smallest_dist_index)
+            x = ranges[smallest_dist_index] * math.cos(angles[smallest_dist_index])
+            y = ranges[smallest_dist_index] * math.sin(angles[smallest_dist_index])
 
             coord = np.array([x, y, 1])
             global_coord = np.dot(T, coord)[:2]
@@ -157,7 +156,7 @@ class PotentialFunction:
 
         # Function parameters
         d_star = 1.0
-        zeta = 3
+        zeta = 10
 
         q = np.array([self.pose[0], self.pose[1]])
         q_goal = np.array([self.goal.x, self.goal.y])
@@ -174,11 +173,11 @@ class PotentialFunction:
     def get_repulsive_potential(self):
 
         # Function parameters
-        d_o = 0.1
+        d_o = 0.4
         eta = 10
 
         grad_rep = np.array([0.0, 0.0])
-        obstacles_coords = self.get_least_distances(self.continuity_indexes,
+        obstacles_coords = self.get_smallest_distances(self.continuity_indexes,
                                                    self.laser_readings.ranges,
                                                    self.angles)
         
@@ -187,12 +186,12 @@ class PotentialFunction:
         for coord in obstacles_coords:
             q_obs = np.array([coord[0], coord[1]])
             d_obs = q - q_obs
-            d_norm = np.linalg.norm(d_obs) - 0.1 # safety margin
+            d_norm = np.linalg.norm(d_obs)
 
             grad_d_obs = d_obs / d_norm
             
             if d_norm <= d_o:
-                grad_rep = grad_rep + eta * (1 / d_o - 1 / d_obs) * grad_d_obs / (d_obs)**2
+                grad_rep = grad_rep + eta * (1 / d_o - 1 / d_norm) * grad_d_obs / (d_norm)**2
 
         return grad_rep
         
@@ -206,9 +205,9 @@ class PotentialFunction:
                 self.get_continuities_positions(self.continuity_indexes,
                                                     self.laser_readings)
                 if len(self.angles) > 0:
-                    self.get_least_distances(self.continuity_indexes, self.laser_readings.ranges, self.angles)
-                    grad = - self.get_attractive_potential() - self.get_repulsive_potential()
-                    # grad = - self.get_attractive_potential()
+                    self.get_smallest_distances(self.continuity_indexes, self.laser_readings.ranges, self.angles)
+                    grad = - (self.get_attractive_potential() + self.get_repulsive_potential())
+
                     controller.go_to_goal(self.goal.x,
                                                     self.goal.y,
                                                     grad[0],
@@ -216,7 +215,7 @@ class PotentialFunction:
 
                 if (controller.is_goal_reached(self.goal.x,
                                                 self.goal.y)):
-                    rospy.logwarn_throttle(2, "Goal reached!")
+                    rospy.logwarn_throttle(3, "Goal reached!")
                     controller.stop_robot()
                     # self.goal = None se as velocidades zerarem
                     
