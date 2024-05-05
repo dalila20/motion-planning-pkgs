@@ -13,9 +13,15 @@ class CirclingCurve:
     def __init__(self):
 
         # Cardioid curve 
-        t = np.linspace(0, 2*np.pi, 40)
-        x = 2 * np.cos(t) * (1 - np.cos(t))
-        y = 2 * np.sin(t) * (1 - np.cos(t))
+        t = np.linspace(0, 2*np.pi, 100)
+        # x = 2 * np.cos(t) * (1 - np.cos(t))
+        # y = 2 * np.sin(t) * (1 - np.cos(t))
+
+        # x = (1 - 2*np.cos(t)) * np.cos(t)
+        # y = (1 - 2*np.cos(t)) * np.sin(t)
+
+        x = 2 * np.cos(t)
+        y = 1 * np.sin(3*t)
         self.waypoints = np.column_stack([x, y])
 
         self.pose = np.array([])
@@ -32,18 +38,11 @@ class CirclingCurve:
         print(wp_index)
         return wp_index
 
-    def get_curve_point(self, angle, time):
-        x = self.x.subs([("w", angle), ("t", time)]).evalf()
-        y = self.y.subs([("w", angle), ("t", time)]).evalf()
-        
-        return [x, y]
-
     def run(self):
         controller = LinearizationController()
         initial_pos = controller.get_current_pos()
         closest_point = self.get_closest_point(initial_pos)
         i = closest_point
-        j = 0
 
         rate = rospy.Rate(10)
 
@@ -57,7 +56,6 @@ class CirclingCurve:
                     i = i + 1
                 if i == len(self.waypoints):
                     i = 0
-                    j = j + 1
                 rate.sleep()
             except KeyboardInterrupt:
                 break

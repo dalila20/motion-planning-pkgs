@@ -3,6 +3,7 @@ import math
 import numpy as np
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Point
 import tf2_ros as tf
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
@@ -18,9 +19,9 @@ class LinearizationController:
         self.marker.type = Marker.POINTS
         self.marker.action = Marker.ADD
         self.marker.pose.orientation.w = 1.0
-        self.marker.scale.x = 0.1
-        self.marker.scale.y = 0.1
-        self.marker.scale.z = 0.1
+        self.marker.scale.x = 0.05
+        self.marker.scale.y = 0.05
+        self.marker.scale.z = 0.05
         self.marker.color.r = 1.0
         self.marker.color.a = 1.0
         self.marker.lifetime = rospy.Duration()
@@ -54,27 +55,27 @@ class LinearizationController:
         else:
             return False
 
-    def get_velocities(self, x_goal, y_goal, vx=0, vy=0):
+    def get_velocities(self, x_goal, y_goal):
         rospy.wait_for_message('/odom', Odometry)
         
-        Kp = 0.5
+        K_p = 0.5
         d = 0.7
-        Vmax = 2
-        u1 = vx + Kp * (x_goal - self.pose[0])
-        u2 = vy + Kp * (y_goal - self.pose[1])
-        Vtot = math.sqrt(u1**2 + u2**2)
+        V_max = 2
 
-        if Vtot > Vmax:
-            u1 = u1 * Vmax / Vtot
-            u2 = u2 * Vmax / Vtot
+        u1 = K_p * (x_goal - self.pose[0])
+        u2 = K_p * (y_goal - self.pose[1])
+        V_total = math.sqrt(u1**2 + u2**2)
 
-        A = [
-            [np.cos(self.pose[2]), -d * np.sin(self.pose[2])],
-            [np.sin(self.pose[2]), d * np.cos(self.pose[2])]
-            ]
-        vw = np.linalg.inv(A) @ [[u1], [u2]]
-        v = float(vw[0])
-        w = float(vw[1])
+        if V_total > V_max:
+            u1 = u1 * V_max / V_total
+            u2 = u2 * V_max / V_total
+
+        A = [[np.cos(self.pose[2]), -d * np.sin(self.pose[2])],
+            [np.sin(self.pose[2]), d * np.cos(self.pose[2])]]
+        
+        v_w = np.linalg.inv(A) @ [[u1], [u2]]
+        v = float(v_w[0])
+        w = float(v_w[1])
         
         return v, w
 
