@@ -16,15 +16,13 @@ class BugFSM:
         rospy.loginfo("Moving to goal...")
 
     def on_exit_MovingToGoal(self):
-        # if com as possíveis transições
-        rospy.logwarn("Local minimum found!")
+        rospy.logwarn("Exiting MovingToGoal!")
 
     def on_enter_FollowingBoundary(self):
         rospy.loginfo("Following obstacle boundary...")
 
     def on_exit_FollowingBoundary(self):
-        # if com as possíveis transições
-        rospy.logerr("Path not found!")
+        rospy.logerr("Exiting FollowingBoundary")
 
     def __init__(self):
         rospy.init_node('bug_fsm', anonymous=False)
@@ -39,7 +37,7 @@ class BugFSM:
         self.machine.add_transition(trigger='goal_reached', source='MovingToGoal', dest='WaitingForGoal')
         self.machine.add_transition(trigger='minimum_found', source='MovingToGoal', dest='FollowingBoundary')
         self.machine.add_transition(trigger='goal_reached', source='FollowingBoundary', dest='WaitingForGoal')
-        self.machine.add_transition(trigger='path_found', source='FollowingBoundary', dest='MoveToGoal')
+        self.machine.add_transition(trigger='path_found', source='FollowingBoundary', dest='MovingToGoal')
         self.machine.add_transition(trigger='path_not_found', source='FollowingBoundary', dest='WaitingForGoal')
 
     def execute(self):

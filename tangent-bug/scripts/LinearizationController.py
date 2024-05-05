@@ -41,9 +41,9 @@ class LinearizationController:
     def get_velocities(self, x_goal, y_goal, vx=0, vy=0):
         rospy.wait_for_message('/odom', Odometry)
         
-        Kp = 0.5
+        Kp = 10
         d = 0.7
-        Vmax = 2
+        Vmax = 0.5
         u1 = vx + Kp * (x_goal - self.pose[0])
         u2 = vy + Kp * (y_goal - self.pose[1])
         Vtot = math.sqrt(u1**2 + u2**2)

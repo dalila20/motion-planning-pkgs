@@ -9,6 +9,10 @@ from BugFSM import BugFSM
 import math
 import numpy as np
 from LinearizationController import LinearizationController
+import matplotlib.pyplot as plt
+
+executed = False
+points = []
 
 class FollowingBoundary:
     def __init__(self):
@@ -24,6 +28,8 @@ class FollowingBoundary:
         self.d_followed = 0.0
         self.followed_points = None
         self.followed_distances = []
+
+        self.angles = []
 
         self.transform = np.array([])
 
@@ -110,6 +116,7 @@ class FollowingBoundary:
                 else:
                     angles.append(angles[i-1] + readings.angle_increment)
 
+            self.angles = angles
             # angles = list(range((readings.angle_min, readings.angle_max, readings.angle_increment)))
 
             T = self.transform
@@ -159,7 +166,6 @@ class FollowingBoundary:
             for index, distance in enumerate(heuristic_distances):
                 if index > 0 and (abs(heuristic_distances[index] - heuristic_distances[index - 1]) <= distance_margin):
                     self.is_local_minimum = True
-            print(least_dist)
 
         return best_oi
 
@@ -191,6 +197,83 @@ class FollowingBoundary:
                 else:
                     return False
 
+    def get_points(self, indexes, readings, angles):
+        global executed
+        executed = True
+        rospy.wait_for_message('/scan', LaserScan)
+        ranges = readings.ranges
+
+        T = self.transform
+
+        num_angles = len(ranges)
+        angles = []
+        continuities_positions = []
+
+        # Getting angles
+        for i in range(num_angles):
+            if range(num_angles)[i] == 0:
+                angles.append(readings.angle_min)
+            else:
+                angles.append(angles[i-1] + readings.angle_increment)
+
+        self.angles = angles
+
+        for interval in indexes:
+            obstacle_indexes = list(range(interval[0],
+                                    interval[1] + 1))
+            init_x = ranges[obstacle_indexes[0]] * math.cos(angles[obstacle_indexes[0]])
+            init_y = ranges[obstacle_indexes[0]] * math.sin(angles[obstacle_indexes[0]])
+
+            end_x = ranges[obstacle_indexes[-1]] * math.cos(angles[obstacle_indexes[-1]])
+            end_y = ranges[obstacle_indexes[-1]] * math.sin(angles[obstacle_indexes[-1]])
+
+            init_coord = np.array([init_x, init_y])
+            end_coord = np.array([end_x, end_y])
+            obstacle_radius = np.linalg.norm(init_coord - end_coord) / 2
+            # print(obstacle_radius)
+            
+            # Use the obstacle indexes and current range to calculate new points
+            # of the curve
+
+            least_dist = float('inf')
+            least_dist_index = 0
+            for index in obstacle_indexes:
+                dist = ranges[index]
+                if dist < least_dist:
+                    least_dist = dist
+                    least_dist_index = index
+
+            x = ranges[least_dist_index] * math.cos(angles[least_dist_index])
+            y = ranges[least_dist_index] * math.sin(angles[least_dist_index])
+            global_pos = np.array([x, y, 1])
+            global_vec = np.dot(T, global_pos)[:2]
+
+            M_x = ((init_x + end_x) / 2) 
+            M_y = ((init_y + end_y) / 2)
+
+            M_vec = np.array([M_x, M_y, 1])
+            M_global = np.dot(T, M_vec)[:2]            
+            full_radius = obstacle_radius + least_dist
+          
+            ang = math.atan2(global_vec[1] - M_global[1], global_vec[0] - M_global[0])
+            ang_increment = 2 * math.pi / 40
+            
+            points = []
+            x = []
+            y = []
+            for _ in range(40):
+                new_x = M_global[0] + full_radius * math.cos(ang)
+                new_y = M_global[1] + full_radius * math.sin(ang)
+                
+                x.append(new_x)
+                y.append(new_y)
+                points.append((new_x, new_y))
+                ang += ang_increment
+            
+                # print(np.linalg.norm(np.array([new_x, new_y]) - np.array([M_global[0], M_global[1]])))
+
+            return points
+
     def get_least_distances(self, indexes, ranges, angles):
 
         least_dist_indexes = []
@@ -220,35 +303,80 @@ class FollowingBoundary:
         return global_coords
 
     def update_d_followed(self, point):
-        self.followed_points.append(point)
-        d = np.linalg.norm(self.goal.x - point[0],
-                           self.goal.y - point[1])
+        d = np.linalg.norm([self.goal.x - point[0],
+                           self.goal.y - point[1]])
         
         self.followed_distances.append(d)
         self.d_followed = min(self.followed_distances)
 
-    def update_d_reach(self, point):
-        pass
+    def update_d_reach(self):
+        obstacles_coords = self.get_least_distances(self.continuity_indexes,
+                                                   self.laser_readings.ranges,
+                                                   self.angles)
+        q_goal = np.array([self.goal.x, self.goal.y])
 
+        least_dist = float('nan')
+        for coord in obstacles_coords:
+            q_obs = np.array([coord[0], coord[1]])
+            d_obs = np.linalg.norm(q_obs - q_goal)
+
+            if d_obs < least_dist:
+                least_dist = d_obs
+
+        self.d_reach = least_dist
 
     def execute(self):
+        global executed, points
+        rospy.wait_for_message('/scan', LaserScan)
         controller = LinearizationController()
-
         rate = rospy.Rate(10)
 
+        if executed is False:
+            points = self.get_points(self.continuity_indexes,
+                                                    self.laser_readings,
+                                                    self.angles)
+        i = 0
         while not rospy.is_shutdown():
             try:
                 if self.followed_points is None:
                     controller.stop_robot()
                     self.followed_points = []
-                    self.followed_points.append([self.pose[0],
-                                                 self.pose[1]])
-                    self.get_continuities_positions(self.continuity_indexes,
-                                                    self.laser_readings)
-                    self.W = (self.laser_readings.ranges[88]
-                              + self.laser_readings.ranges[89]) / 2
-                    print(self.W)
                 
+                # self.update_d_followed([self.pose[0],
+                #                         self.pose[1]])
+
+                # self.get_continuities_positions(self.continuity_indexes,
+                #                                 self.laser_readings)
+                # self.update_d_reach()
+
+                # # print(points)
+                # controller.go_to_goal(points[i][0], points[i][1])
+                # print(self.pose[0], self.pose[1])
+
+                # if controller.is_goal_reached(points[i][0],
+                #                                 points[i][1]):
+                #     self.followed_points.append(points[i])
+                    
+                #     if i < len(points) - 1:
+                #         i += 1
+
+                # # Verify if path was found
+                # distance_margin = 0.2
+                # current_pos = np.array([self.pose[0], self.pose[1]])
+
+                # if len(self.followed_points) == len(points):
+                #     first_point = np.array([self.followed_points[0][0],
+                #                             self.followed_points[0][1]])
+                #     d = np.linalg.norm(current_pos - first_point)
+
+                #     if self.followed_points is not None and (d <= distance_margin):
+                #         self.fsm.path_not_found()
+                #         break
+
+                #     if self.d_reach < self.d_followed:
+                #         self.fsm.path_found()
+                #         break
+
                 rate.sleep()
             except KeyboardInterrupt:
                 # Ctrl + Z

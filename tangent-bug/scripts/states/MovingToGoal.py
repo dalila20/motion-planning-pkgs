@@ -157,7 +157,6 @@ class MovingToGoal:
                                       - heuristic_distances[index - 1])
                                       <= distance_margin):
                     self.is_local_minimum = True
-            print(least_dist)
 
         return best_oi
 
@@ -201,6 +200,7 @@ class MovingToGoal:
                 if self.is_local_minimum:
                     self.fsm.minimum_found()
                     break
+                
                 if self.is_goal_blocked:
                     controller.go_to_goal(oi[0], oi[1])
                     rospy.logwarn(oi)
